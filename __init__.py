@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from CTFd.plugins.challenges import BaseChallenge
+from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES
 from CTFd.plugins import register_plugin_assets_directory
 from CTFd.plugins.flags import get_flag_class
 from CTFd.models import db, Solves, Fails, Flags, Challenges, ChallengeFiles, Tags, Teams, Hints
