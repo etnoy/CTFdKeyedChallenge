@@ -1,28 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from CTFd.plugins.challenges import BaseChallenge
 from CTFd.plugins import register_plugin_assets_directory
-from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES, CTFdStandardChallenge, get_key_class
-from CTFd.models import db, Solves, WrongKeys, Keys, Challenges, Files, Tags, Teams
-from CTFd.plugins.keys import BaseKey, KEY_CLASSES
-from CTFd.utils import admins_only, is_admin, upload_file, delete_file
+from CTFd.plugins.flags import get_flag_class
+from CTFd.models import db, Solves, Fails, Flags, Challenges, ChallengeFiles, Tags, Teams, Hints
+from CTFd import utils
+from CTFd.utils.migrations import upgrade
+from CTFd.utils.user import get_ip
+from CTFd.utils.uploads import upload_file, delete_file
+from CTFd.utils.modes import get_model
+from flask import Blueprint
+import math
 
-from CTFd.config import Config
-
-class KeyedKey(BaseKey):
+class CTFdKeyedChallenge(BaseChallenge):
+    id = "keyed"
     name = "keyed"
-
-class CTFdKeyedChallenge(Challenges):
-    __mapper_args__ = {'polymorphic_identity': 'keyed'}
-    id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
-    token = db.Column(db.String(80))
-
-    def __init__(self, name, description, value, category, token, type='keyed'):
-        self.name = name
-        self.description = description
-        self.value = value
-        self.category = category
-        self.type = type
-        self.token = token
 
 def load(app):
     app.db.create_all()
