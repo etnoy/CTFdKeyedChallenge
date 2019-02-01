@@ -193,3 +193,5 @@ class KeyedChallenge(Challenges):
 
 def load(app):
     app.db.create_all()
+    CHALLENGE_CLASSES['keyed'] = KeyedValueChallenge
+    register_plugin_assets_directory(app, base_path='/plugins/KeyedValueChallenge/assets/')
