@@ -18,5 +18,3 @@ class CTFdKeyedChallenge(BaseChallenge):
 
 def load(app):
     app.db.create_all()
-    KEY_CLASSES['keyed'] = OnlineKey
-    CHALLENGE_CLASSES['keyed'] = OnlineTypeChallenge
