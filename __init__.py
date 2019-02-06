@@ -1,8 +1,8 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+from __future__ import print_function
 from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES
 from CTFd.plugins import register_plugin_assets_directory
-from CTFd.plugins.flags import get_flag_class
+from CTFd.utils.user import get_current_team, get_current_user
+from CTFd.plugins.flags import BaseFlag, get_flag_class, FLAG_CLASSES
 from CTFd.models import db, Solves, Fails, Flags, Challenges, ChallengeFiles, Tags, Teams, Hints
 from CTFd import utils
 from CTFd.utils.migrations import upgrade
@@ -10,7 +10,13 @@ from CTFd.utils.user import get_ip
 from CTFd.utils.uploads import upload_file, delete_file
 from CTFd.utils.modes import get_model
 from flask import Blueprint
+from flask import render_template
+import sys
+import nacl.secret
+import nacl.utils
+
 import math
+import base64
 
 class KeyedValueChallenge(BaseChallenge):
     id = "keyed"
@@ -56,6 +62,7 @@ class KeyedValueChallenge(BaseChallenge):
             'initial': challenge.initial,
             'decay': challenge.decay,
             'minimum': challenge.minimum,
+            'key': challenge.key,
             'description': challenge.description,
             'category': challenge.category,
             'state': challenge.state,
@@ -116,6 +123,9 @@ class KeyedValueChallenge(BaseChallenge):
 
     @staticmethod
     def attempt(challenge, request):
+        user = get_current_user()
+        team = get_current_team()
+
         data = request.form or request.get_json()
         submission = data['submission'].strip()
         flags = Flags.query.filter_by(challenge_id=challenge.id).all()
@@ -181,6 +191,9 @@ class KeyedValueChallenge(BaseChallenge):
 class KeyedChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'keyed'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
+    rawkey = nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE)
+    key=base64.b64encode(rawkey)
+
     initial = db.Column(db.Integer, default=0)
     minimum = db.Column(db.Integer, default=0)
     decay = db.Column(db.Integer, default=0)
@@ -189,9 +202,42 @@ class KeyedChallenge(Challenges):
         super(KeyedChallenge, self).__init__(**kwargs)
         self.initial = kwargs['value']
 
+class CTFdKeyedFlag(BaseFlag):
+    name = "keyed"
+    templates = {  # Nunjucks templates used for key editing & viewing
+        'create': '/plugins/keyed_challenges/assets/flag/create.html',
+        'update': '/plugins/keyed_challenges/assets/flag/edit.html',
+    }
 
+    @staticmethod
+    def compare(chal_key_obj, provided):
+        saved = chal_key_obj.content
+        print(chal_key_obj.challenge.key, file=sys.stderr)
+        print(chal_key_obj.data, file=sys.stderr)
+        data = chal_key_obj.data
+
+        if len(saved) != len(provided):
+            return False
+        result = 0
+
+        if data == "case_insensitive":
+            for x, y in zip(saved.lower(), provided.lower()):
+                result |= ord(x) ^ ord(y)
+        else:
+            for x, y in zip(saved, provided):
+                result |= ord(x) ^ ord(y)
+        return result == 0
 
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES['keyed'] = KeyedValueChallenge
+    FLAG_CLASSES['keyed'] = CTFdKeyedFlag
     register_plugin_assets_directory(app, base_path='/plugins/keyed_challenges/assets/')
+
+    @app.route('/challenges/xss1', methods=['GET'])
+    def view_xss1():
+        return render_template('page.html', content="<h1>XSS1</h1>")
+
+    @app.route('/challenges/xss2', methods=['GET'])
+    def view_xss2():
+        return render_template('page.html', content="<h1>XSS2</h1>")

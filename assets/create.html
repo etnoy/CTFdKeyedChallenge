@@ -1,7 +1,7 @@
 <form method="POST" action="{{ script_root }}/admin/chal/new" enctype="multipart/form-data">
 	<div class="form-group">
 		<div class="alert alert-secondary" role="alert">
-			Dynamic value challenges decrease in value as they receive solves. The more solves a dynamic challenge has,
+			KEYED Dynamic value challenges decrease in value as they receive solves. The more solves a dynamic challenge has,
 			the
 			lower its value is to everyone who has solved it.
 		</div>
@@ -80,7 +80,7 @@
 	</div>
 
 	<input type="hidden" name="state" value="hidden">
-	<input type="hidden" value="dynamic" name="type" id="chaltype">
+	<input type="hidden" value="keyed" name="type" id="chaltype">
 
 	<div class="form-group">
 		<button class="btn btn-primary float-right create-challenge-submit" type="submit">Create</button>
