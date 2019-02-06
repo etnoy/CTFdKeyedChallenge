@@ -16,7 +16,6 @@ import nacl.secret
 import nacl.utils
 
 import math
-import base64
 
 class KeyedValueChallenge(BaseChallenge):
     id = "keyed"
@@ -55,6 +54,15 @@ class KeyedValueChallenge(BaseChallenge):
         This method is in used to access the data of a challenge in a format processable by the front end.
         """
         challenge = KeyedChallenge.query.filter_by(id=challenge.id).first()
+        userid=get_current_user().id
+        teamid=get_current_user().id
+
+        box=nacl.secret.SecretBox(challenge.key, encoder=nacl.encoding.HexEncoder)
+
+        lowercase_flag=str('helloasdf')
+        message='U' + str(userid)+'T'+str(teamid)+'F'+lowercase_flag
+        ciphertext=box.encrypt(message)
+        encoded_ciphertext=nacl.encoding.HexEncoder.encode(ciphertext)
         data = {
             'id': challenge.id,
             'name': challenge.name,
@@ -63,7 +71,7 @@ class KeyedValueChallenge(BaseChallenge):
             'decay': challenge.decay,
             'minimum': challenge.minimum,
             'key': challenge.key,
-            'description': challenge.description,
+            'description': encoded_ciphertext,
             'category': challenge.category,
             'state': challenge.state,
             'max_attempts': challenge.max_attempts,
@@ -191,8 +199,7 @@ class KeyedValueChallenge(BaseChallenge):
 class KeyedChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'keyed'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
-    rawkey = nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE)
-    key=base64.b64encode(rawkey)
+    key = nacl.encoding.HexEncoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
 
     initial = db.Column(db.Integer, default=0)
     minimum = db.Column(db.Integer, default=0)
@@ -212,21 +219,20 @@ class CTFdKeyedFlag(BaseFlag):
     @staticmethod
     def compare(chal_key_obj, provided):
         saved = chal_key_obj.content
-        print(chal_key_obj.challenge.key, file=sys.stderr)
-        print(chal_key_obj.data, file=sys.stderr)
-        data = chal_key_obj.data
+        userid=get_current_user().id
+        teamid=get_current_user().id
+        box=nacl.secret.SecretBox(nacl.encoding.HexEncoder.decode(chal_key_obj.challenge.key))
+        decoded_ciphertext=nacl.encoding.HexEncoder.decode(provided)
 
-        if len(saved) != len(provided):
+        try:
+            decrypted_flag=box.decrypt(decoded_ciphertext)
+        except nacl.exceptions.CryptoError:
+            # Verification failed
             return False
-        result = 0
 
-        if data == "case_insensitive":
-            for x, y in zip(saved.lower(), provided.lower()):
-                result |= ord(x) ^ ord(y)
-        else:
-            for x, y in zip(saved, provided):
-                result |= ord(x) ^ ord(y)
-        return result == 0
+        stored_flag='U'+str(userid)+'T'+str(teamid)+'F'+str(saved.lower())
+
+        return decrypted_flag == stored_flag
 
 def load(app):
     app.db.create_all()
