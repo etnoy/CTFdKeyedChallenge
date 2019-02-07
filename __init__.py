@@ -2,8 +2,8 @@ from __future__ import print_function
 from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES
 from CTFd.plugins import register_plugin_assets_directory
 from CTFd.utils.user import get_current_team, get_current_user
-from CTFd.plugins.flags import BaseFlag, get_flag_class, FLAG_CLASSES
-from CTFd.models import db, Solves, Fails, Flags, Challenges, ChallengeFiles, Tags, Teams, Hints
+from CTFd.plugins.flags import get_flag_class, FLAG_CLASSES
+from CTFd.models import db, Solves, Fails, Flags, Challenges, ChallengeFiles, Tags, Users, Teams, Hints
 from CTFd import utils
 from CTFd.utils.migrations import upgrade
 from CTFd.utils.user import get_ip
@@ -54,24 +54,25 @@ class KeyedValueChallenge(BaseChallenge):
         This method is in used to access the data of a challenge in a format processable by the front end.
         """
         challenge = KeyedChallenge.query.filter_by(id=challenge.id).first()
-        userid=get_current_user().id
-        teamid=get_current_user().id
 
-        box=nacl.secret.SecretBox(challenge.key, encoder=nacl.encoding.HexEncoder)
+        box=nacl.secret.SecretBox(nacl.encoding.Base64Encoder.decode(challenge.key))
+        salt=nacl.encoding.Base64Encoder.decode(challenge.salt)
 
-        lowercase_flag=str('helloasdf')
-        message='U' + str(userid)+'T'+str(teamid)+'F'+lowercase_flag
-        ciphertext=box.encrypt(message)
-        encoded_ciphertext=nacl.encoding.HexEncoder.encode(ciphertext)
+        user=get_current_user()
+        team=get_current_team()
+
+        user_id=user.id,
+        team_id=team.id if team else None,
+
+        flag='U' + str(user_id)+'T'+str(team_id)+'F'+salt
+
+        encrypted_flag='flag(' + nacl.encoding.Base64Encoder.encode(box.encrypt(flag)) + ')'
+
         data = {
             'id': challenge.id,
             'name': challenge.name,
             'value': challenge.value,
-            'initial': challenge.initial,
-            'decay': challenge.decay,
-            'minimum': challenge.minimum,
-            'key': challenge.key,
-            'description': encoded_ciphertext,
+            'description': encrypted_flag,
             'category': challenge.category,
             'state': challenge.state,
             'max_attempts': challenge.max_attempts,
@@ -94,19 +95,7 @@ class KeyedValueChallenge(BaseChallenge):
         data = request.form or request.get_json()
 
         for attr, value in data.items():
-            # We need to set these to floats so that the next operations don't operate on strings
-            if attr in ('initial', 'minimum', 'decay'):
-                value = float(value)
-                setattr(challenge, attr, value)
-
-        Model = get_model()
-
-        solve_count = Solves.query \
-            .join(Model, Solves.account_id == Model.id) \
-            .filter(Solves.challenge_id == challenge.id, Model.hidden == False, Model.banned == False) \
-            .count()
-
-        challenge.value = challenge.initial
+            setattr(challenge, attr, value)
 
         db.session.commit()
         return challenge
@@ -131,16 +120,51 @@ class KeyedValueChallenge(BaseChallenge):
 
     @staticmethod
     def attempt(challenge, request):
-        user = get_current_user()
-        team = get_current_team()
 
         data = request.form or request.get_json()
         submission = data['submission'].strip()
-        flags = Flags.query.filter_by(challenge_id=challenge.id).all()
-        for flag in flags:
-            if get_flag_class(flag.type).compare(flag, submission):
-                return True, 'Correct'
-        return False, 'Incorrect'
+
+        chal = KeyedChallenge.query.filter_by(id=challenge.id).first()
+
+        box=nacl.secret.SecretBox(nacl.encoding.Base64Encoder.decode(chal.key))
+        salt=nacl.encoding.Base64Encoder.decode(chal.salt)
+
+        if len(submission) < 7:
+            return False, 'Invalid format'
+
+        if submission[:5] != 'flag(':
+            return False, 'Invalid format'
+
+        if submission[-1:] != ')':
+            return False, 'Invalid format'
+
+        submission=submission[5:-1]
+
+        try:
+            flag=nacl.encoding.Base64Encoder.decode(submission)
+        except TypeError:
+            return False, 'Invalid format'
+
+        try:
+            decrypted_flag=box.decrypt(flag)
+        except nacl.exceptions.CryptoError:
+            # Verification failed
+            return False, 'Incorrect decrypt'
+
+        user=get_current_user()
+        team=get_current_team()
+
+        user_id=user.id,
+        team_id=team.id if team else None,
+
+        stored_flag='U'+str(user_id)+'T'+str(team_id)+'F'+salt
+        print(stored_flag,file=sys.stderr)
+        print(decrypted_flag,file=sys.stderr)
+
+        if decrypted_flag == stored_flag:
+            return True, 'Correct'
+        else:
+            return False, 'Incorrect'
 
     @staticmethod
     def solve(user, team, challenge, request):
@@ -154,21 +178,6 @@ class KeyedValueChallenge(BaseChallenge):
             .join(Model, Solves.account_id == Model.id) \
             .filter(Solves.challenge_id == challenge.id, Model.hidden == False, Model.banned == False) \
             .count()
-
-        # It is important that this calculation takes into account floats.
-        # Hence this file uses from __future__ import division
-        value = (
-            (
-                (chal.minimum - chal.initial) / (chal.decay**2)
-            ) * (solve_count**2)
-        ) + chal.initial
-
-        value = math.ceil(value)
-
-        if value < chal.minimum:
-            value = chal.minimum
-
-        chal.value = value
 
         solve = Solves(
             user_id=user.id,
@@ -199,51 +208,32 @@ class KeyedValueChallenge(BaseChallenge):
 class KeyedChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'keyed'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
-    key = nacl.encoding.HexEncoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
-
-    initial = db.Column(db.Integer, default=0)
-    minimum = db.Column(db.Integer, default=0)
-    decay = db.Column(db.Integer, default=0)
+    value = db.Column(db.Integer, default=0)
+    key = db.Column(db.Text)
+    salt = db.Column(db.Text)
 
     def __init__(self, *args, **kwargs):
         super(KeyedChallenge, self).__init__(**kwargs)
         self.initial = kwargs['value']
+        self.key = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
+        self.salt = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
 
-class CTFdKeyedFlag(BaseFlag):
-    name = "keyed"
-    templates = {  # Nunjucks templates used for key editing & viewing
-        'create': '/plugins/keyed_challenges/assets/flag/create.html',
-        'update': '/plugins/keyed_challenges/assets/flag/edit.html',
-    }
+class UserSalt(db.Model):
+    __tablename__ = 'usersalt'
 
-    @staticmethod
-    def compare(chal_key_obj, provided):
-        saved = chal_key_obj.content
-        userid=get_current_user().id
-        teamid=get_current_user().id
-        box=nacl.secret.SecretBox(nacl.encoding.HexEncoder.decode(chal_key_obj.challenge.key))
-        decoded_ciphertext=nacl.encoding.HexEncoder.decode(provided)
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
+    challenge_id = db.Column(db.Integer, db.ForeignKey('challenges.id', ondelete='CASCADE'))
+    salt = db.Column(db.Text, unique=True)
 
-        try:
-            decrypted_flag=box.decrypt(decoded_ciphertext)
-        except nacl.exceptions.CryptoError:
-            # Verification failed
-            return False
+    user = db.relationship("Users", foreign_keys='UserSalt.user_id', lazy='select')#, back_populates="salt")
+    challenge = db.relationship("Challenges", foreign_keys='UserSalt.challenge_id', lazy='select')#, back_populates="user_salts")
 
-        stored_flag='U'+str(userid)+'T'+str(teamid)+'F'+str(saved.lower())
-
-        return decrypted_flag == stored_flag
+    def __init__(self, *args, **kwargs):
+        super(UserSalt, self).__init__(**kwargs)
+        #self.salt = nacl.encoding.HexEncoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
 
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES['keyed'] = KeyedValueChallenge
-    FLAG_CLASSES['keyed'] = CTFdKeyedFlag
     register_plugin_assets_directory(app, base_path='/plugins/keyed_challenges/assets/')
-
-    @app.route('/challenges/xss1', methods=['GET'])
-    def view_xss1():
-        return render_template('page.html', content="<h1>XSS1</h1>")
-
-    @app.route('/challenges/xss2', methods=['GET'])
-    def view_xss2():
-        return render_template('page.html', content="<h1>XSS2</h1>")
