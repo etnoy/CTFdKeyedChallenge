@@ -158,8 +158,6 @@ class KeyedValueChallenge(BaseChallenge):
         team_id=team.id if team else None,
 
         stored_flag='U'+str(user_id)+'T'+str(team_id)+'F'+salt
-        print(stored_flag,file=sys.stderr)
-        print(decrypted_flag,file=sys.stderr)
 
         if decrypted_flag == stored_flag:
             return True, 'Correct'
@@ -214,7 +212,6 @@ class KeyedChallenge(Challenges):
 
     def __init__(self, *args, **kwargs):
         super(KeyedChallenge, self).__init__(**kwargs)
-        self.initial = kwargs['value']
         self.key = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
         self.salt = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
 
