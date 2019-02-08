@@ -1,9 +1,7 @@
 <form method="POST" action="{{ script_root }}/admin/chal/new" enctype="multipart/form-data">
 	<div class="form-group">
 		<div class="alert alert-secondary" role="alert">
-			KEYED Dynamic value challenges decrease in value as they receive solves. The more solves a dynamic challenge has,
-			the
-			lower its value is to everyone who has solved it.
+			Keyed challenges give encrypted flags depending on the logged-in user in order to prevent copying.
 		</div>
 	</div>
 
@@ -22,6 +20,14 @@
 			</small>
 		</label>
 		<input type="text" class="form-control" name="category" placeholder="Enter challenge category">
+	</div>
+	<div class="form-group">
+		<label for="identifier">Identifier<br>
+			<small class="form-text text-muted">
+              Unique identifier to map to specific challenge. (Hacky)
+			</small>
+		</label>
+		<input type="text" class="form-control" name="identifier" placeholder="Enter identifier" required>
 	</div>
 
 	<ul class="nav nav-tabs" role="tablist" id="new-desc-edit">
@@ -57,7 +63,6 @@
 			</small>
 		</label>
 		<input type="number" class="form-control" name="value" placeholder="Enter value" required>
-
 	</div>
 
 	<input type="hidden" name="state" value="hidden">

@@ -55,24 +55,12 @@ class KeyedValueChallenge(BaseChallenge):
         """
         challenge = KeyedChallenge.query.filter_by(id=challenge.id).first()
 
-        box=nacl.secret.SecretBox(nacl.encoding.Base64Encoder.decode(challenge.key))
-        salt=nacl.encoding.Base64Encoder.decode(challenge.salt)
-
-        user=get_current_user()
-        team=get_current_team()
-
-        user_id=user.id,
-        team_id=team.id if team else None,
-
-        flag='U' + str(user_id)+'T'+str(team_id)+'F'+salt
-
-        encrypted_flag='flag(' + nacl.encoding.Base64Encoder.encode(box.encrypt(flag)) + ')'
-
         data = {
             'id': challenge.id,
             'name': challenge.name,
             'value': challenge.value,
-            'description': encrypted_flag,
+            'identifier': challenge.identifier,
+            'description': challenge.description,
             'category': challenge.category,
             'state': challenge.state,
             'max_attempts': challenge.max_attempts,
@@ -207,13 +195,27 @@ class KeyedChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'keyed'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
     value = db.Column(db.Integer, default=0)
-    key = db.Column(db.Text)
-    salt = db.Column(db.Text)
+    key = db.Column(db.Text, unique=True)
+    identifier = db.Column(db.Text, unique=True)
+    salt = db.Column(db.Text, unique=True)
 
     def __init__(self, *args, **kwargs):
         super(KeyedChallenge, self).__init__(**kwargs)
         self.key = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
         self.salt = nacl.encoding.Base64Encoder.encode(nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE))
+
+    def getflag(self):
+        user=get_current_user()
+        team=get_current_team()
+
+        user_id=user.id,
+        team_id=team.id if team else None,
+
+        box=nacl.secret.SecretBox(nacl.encoding.Base64Encoder.decode(self.key))
+        salt=nacl.encoding.Base64Encoder.decode(self.salt)
+        flag='U' + str(user_id)+'T'+str(team_id)+'F'+salt
+
+        return 'flag(' + nacl.encoding.Base64Encoder.encode(box.encrypt(flag)) + ')'
 
 class UserSalt(db.Model):
     __tablename__ = 'usersalt'
